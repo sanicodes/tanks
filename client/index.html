@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Tank Arena</title>
+<style>
+  :root { --red:#e15a4a; --blue:#4a78e1; --accent:#3a7; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; height:100%; background:#1c1d1a; color:#e8e8e8;
+    font-family: system-ui, -apple-system, sans-serif; }
+  button { font: inherit; cursor:pointer; border:none; border-radius:6px;
+    padding:8px 14px; background:#444; color:#eee; }
+  button:hover { background:#555; }
+  button.primary { background:var(--accent); }
+  button.primary:hover { background:#4b8; }
+  input { font: inherit; padding:8px 10px; border-radius:6px; border:1px solid #555;
+    background:#2c2c2c; color:#eee; }
+  .hidden { display:none !important; }
+
+  /* welcome */
+  #welcome { min-height:100vh; display:flex; align-items:center; justify-content:center; padding:18px; }
+  .welcome-card { background:#27282a; padding:34px 32px; border-radius:14px; text-align:center;
+    box-shadow:0 10px 40px rgba(0,0,0,.5); width:100%; max-width:400px; }
+  .welcome-card h1 { margin:0 0 6px; font-size:40px; }
+  .welcome-card .sub { margin:0 0 22px; opacity:.8; }
+  .welcome-card input { width:100%; text-align:center; font-size:17px; margin-bottom:14px; }
+  .welcome-card button { width:100%; font-size:17px; padding:11px; }
+  .welcome-card button:disabled { opacity:.5; cursor:default; }
+  #changeName { color:#8bf; text-decoration:none; }
+  #changeName:hover { text-decoration:underline; }
+
+  /* lobby */
+  #lobby { max-width:760px; margin:0 auto; padding:28px 18px; }
+  #lobby h1 { margin:0 0 4px; }
+  .sub { opacity:.6; margin:0 0 22px; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:18px; }
+  #roomList { display:flex; flex-direction:column; gap:8px; }
+  .roomcard { display:flex; align-items:center; justify-content:space-between;
+    background:#27282a; padding:12px 14px; border-radius:8px; }
+  .roomcard .meta { opacity:.7; font-size:14px; }
+  .empty { opacity:.5; padding:20px; text-align:center; }
+  .err { color:#f88; min-height:18px; font-size:14px; }
+
+  /* room lobby */
+  #roomlobby { max-width:900px; margin:0 auto; padding:24px 18px; }
+  .rl-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:18px; }
+  .rl-head h2 { margin:0; }
+  #rlTeams { display:grid; gap:12px; margin-bottom:18px; }
+  .teamcol { background:#27282a; border-radius:10px; padding:12px; display:flex; flex-direction:column; gap:10px; }
+  .teamcol h3 { margin:0; text-align:center; font-size:16px; }
+  .col-red h3 { color:var(--red); }
+  .col-blue h3 { color:var(--blue); }
+  .col-ffa h3 { color:#f0c040; }
+  .col-spec h3 { opacity:.7; }
+  .roster { list-style:none; margin:0; padding:0; min-height:80px; display:flex; flex-direction:column; gap:5px; }
+  .roster li { background:#34352f; padding:6px 9px; border-radius:6px; font-size:14px; }
+  .roster li.self { outline:2px solid #fff5; }
+  .teamcol button { width:100%; }
+  .col-red button { background:var(--red); }
+  .col-blue button { background:var(--blue); }
+
+  .panel { background:#27282a; border-radius:10px; padding:14px 16px; margin-bottom:16px; }
+  .panel h3 { margin:0 0 12px; font-size:16px; }
+  .tag { font-size:11px; background:var(--accent); color:#fff; padding:2px 7px; border-radius:10px; margin-left:6px; }
+  #rlClasses { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
+  .classbtn { display:flex; flex-direction:column; gap:4px; align-items:flex-start; text-align:left;
+    background:#34352f; padding:10px 12px; }
+  .classbtn strong { font-size:15px; }
+  .classbtn span { font-size:12px; opacity:.7; font-weight:400; line-height:1.3; }
+  .classbtn.sel { background:var(--accent); }
+  .classbtn.sel span { opacity:.9; }
+
+  .setting { display:flex; align-items:center; gap:14px; margin:8px 0; }
+  .setting > label { width:90px; opacity:.8; font-size:14px; }
+  .opts { display:flex; gap:6px; flex-wrap:wrap; }
+  .opts button { padding:6px 12px; background:#34352f; }
+  .opts button.sel { background:var(--accent); color:#fff; }
+  .opts button:disabled { opacity:.55; cursor:default; }
+  .teamtools { display:flex; justify-content:center; margin:0 0 14px; }
+  .startrow { display:flex; align-items:center; gap:14px; }
+  #startBtn { font-size:17px; padding:10px 22px; }
+  #startBtn:disabled { opacity:.5; cursor:default; }
+
+  /* game */
+  #game { display:flex; flex-direction:column; align-items:center; gap:8px; padding:10px; }
+  #hud { display:flex; align-items:center; gap:22px; font-size:24px; font-weight:700; }
+  #hud .red { color:var(--red); }
+  #hud .blue { color:var(--blue); }
+  #hudMid { font-size:14px; font-weight:500; opacity:.8; min-width:160px; text-align:center; }
+  #hudLeft, #hudRight { min-width:120px; }
+  #hudLeft { text-align:right; }
+  #hudRight { text-align:left; font-size:16px; font-weight:600; }
+  #clock { font-variant-numeric:tabular-nums; opacity:.85; font-size:18px; font-weight:600; }
+  #banner { height:22px; font-size:16px; opacity:.9; }
+  .arena { display:flex; gap:14px; align-items:flex-start; }
+  .stage { position:relative; line-height:0; }
+  canvas { background:#3b3f37; border-radius:8px; box-shadow:0 6px 22px rgba(0,0,0,.55);
+    cursor:crosshair; max-width:calc(100vw - 230px); height:auto; display:block; }
+  #countdown { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    font-size:120px; font-weight:800; color:#fff; text-shadow:0 4px 20px rgba(0,0,0,.7);
+    pointer-events:none; }
+  #respawn { position:absolute; inset:0; display:flex; flex-direction:column; gap:6px;
+    align-items:center; justify-content:center; background:rgba(0,0,0,.4); border-radius:8px; }
+  #respawn .rs-big { font-size:46px; font-weight:800; color:var(--red); text-shadow:0 3px 12px rgba(0,0,0,.6); }
+  #respawn .rs-sub { font-size:20px; opacity:.9; }
+  #winner { position:absolute; inset:0; display:flex; flex-direction:column; gap:6px;
+    align-items:center; justify-content:center; background:rgba(0,0,0,.5);
+    border-radius:8px; animation:popin .25s ease-out; }
+  #winner .big { font-size:54px; font-weight:800; text-shadow:0 3px 14px rgba(0,0,0,.6); }
+  @keyframes popin { from { transform:scale(.85); opacity:0; } to { transform:scale(1); opacity:1; } }
+
+  #board { width:190px; background:#27282a; border-radius:8px; padding:12px 14px;
+    display:flex; flex-direction:column; gap:6px; max-height:80vh; overflow:auto; }
+  #board h4 { margin:8px 0 2px; font-size:14px; display:flex; justify-content:space-between; }
+  #board h4:first-child { margin-top:0; }
+  #board h4.red { color:var(--red); }
+  #board h4.blue { color:var(--blue); }
+  #board h4.ffa { color:#f0c040; }
+  #board .cnt { opacity:.7; }
+  #board ul { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:3px; }
+  #board li { font-size:13px; padding:4px 8px; background:#34352f; border-radius:5px;
+    display:flex; justify-content:space-between; gap:6px; }
+  #board li.self { outline:1px solid #fff6; }
+  #board li.empty { background:transparent; opacity:.4; }
+  #board .nm { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #board .kd { opacity:.7; font-variant-numeric:tabular-nums; }
+
+  .controls { display:flex; gap:8px; align-items:center; flex-wrap:wrap; justify-content:center; }
+  .hint { font-size:13px; opacity:.6; text-align:center; }
+  code { background:#111; padding:1px 5px; border-radius:3px; }
+</style>
+</head>
+<body>
+  <!-- WELCOME -->
+  <section id="welcome">
+    <div class="welcome-card">
+      <h1>🛡️ Tank Arena</h1>
+      <p class="sub">Server-authoritative multiplayer tank battles. Enter a callsign to deploy.</p>
+      <input id="name" placeholder="Your callsign" maxlength="16" autocomplete="off" />
+      <button class="primary" id="enterBtn" disabled>Continue</button>
+    </div>
+  </section>
+
+  <!-- GLOBAL LOBBY -->
+  <section id="lobby" class="hidden">
+    <h1>🛡️ Tank Arena</h1>
+    <p class="sub">Playing as <strong id="whoami"></strong> · <a id="changeName" href="#">change</a></p>
+    <div class="row">
+      <input id="roomName" placeholder="New battle name" maxlength="24" />
+      <input id="roomPass" placeholder="Password (optional)" maxlength="32" autocomplete="off" />
+      <button class="primary" id="createBtn">Create battle</button>
+      <button id="refreshBtn">Refresh</button>
+    </div>
+    <div class="err" id="lobbyErr"></div>
+    <h3>Open battles</h3>
+    <div id="roomList"><div class="empty">No battles yet — start one!</div></div>
+  </section>
+
+  <!-- ROOM LOBBY -->
+  <section id="roomlobby" class="hidden">
+    <div class="rl-head">
+      <h2 id="rlName">Battle</h2>
+      <button id="rlLeave">Leave</button>
+    </div>
+    <div id="rlTeams"></div>
+    <div class="teamtools">
+      <button id="shuffleBtn" class="hidden">🔀 Shuffle teams</button>
+    </div>
+    <div class="panel">
+      <h3>Choose your tank <span class="hint" style="font-weight:400">— or press 1–4 in battle (next spawn)</span></h3>
+      <div id="rlClasses"></div>
+    </div>
+    <div class="panel">
+      <h3>Battle settings <span id="rlHostTag" class="tag hidden">you're the host</span></h3>
+      <div class="setting"><label>Mode</label><div id="rlMode" class="opts"></div></div>
+      <div class="setting"><label>Battlefield</label><div id="rlArena" class="opts"></div></div>
+      <div class="setting" id="rlFragRow"><label id="fragLabel">Frag limit</label><div id="rlFrag" class="opts"></div></div>
+      <div class="setting"><label>Time limit</label><div id="rlTime" class="opts"></div></div>
+      <div class="setting"><label>Fog of war</label><div id="rlFog" class="opts"></div></div>
+    </div>
+    <div class="startrow">
+      <button id="startBtn" class="primary hidden">Start battle</button>
+      <span id="rlWait" class="hint"></span>
+    </div>
+  </section>
+
+  <!-- GAME -->
+  <section id="game" class="hidden">
+    <div id="hud">
+      <span id="hudLeft"></span>
+      <span id="hudMid"></span>
+      <span id="hudRight"></span>
+      <span id="clock">0:00</span>
+    </div>
+    <div id="banner"></div>
+    <div class="arena">
+      <div class="stage">
+        <canvas id="c" width="1024" height="640"></canvas>
+        <div id="countdown" class="hidden"></div>
+        <div id="respawn" class="hidden"></div>
+        <div id="winner" class="hidden"></div>
+      </div>
+      <aside id="board"></aside>
+    </div>
+    <div class="controls">
+      <button id="rematchBtn" class="primary hidden">Play again</button>
+      <span id="endNote" class="hint hidden"></span>
+      <button id="muteBtn" title="Toggle sound">🔊</button>
+      <button id="leaveBtn">Leave</button>
+    </div>
+    <div class="hint">Drive <code>WASD</code> / arrows · Aim <code>mouse</code> · Fire <code>click</code> / <code>Space</code> · Switch tank <code>1–4</code></div>
+  </section>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script type="module" src="/main.js"></script>
+</body>
+</html>
