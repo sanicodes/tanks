@@ -19,8 +19,8 @@ overrides the port.
 
 ## Controls
 
-Drive `WASD` / arrows · Aim with the **mouse** · Fire `click` or `Space`
-(auto-fires while held, gated by your tank's reload) · Switch tank `1`–`4`
+Drive `WASD` / arrows · Aim with the **mouse** · Fire one shot with `click` or
+`Space` (gated by your tank's reload) · Switch tank `1`–`4`
 (applies on your next spawn).
 
 ## Game modes
@@ -48,7 +48,7 @@ Four classes, each with its own hull stats and **bullet** (`shared/constants.js`
 | Scout   | 70  | fast  | rapid 7-dmg peashooter (slight spread) |
 | Fighter | 110 | med   | balanced 17-dmg round |
 | Heavy   | 185 | slow  | 44-dmg shell with **splash** damage |
-| Sniper  | 80  | med   | 58-dmg round that **pierces** through tanks |
+| Sniper  | 80  | med   | long-range 58-dmg round that **pierces** through tanks |
 
 Firing recoils the hull; hits apply knockback. Health regenerates after a few
 seconds without damage, and fresh spawns get brief invulnerability.

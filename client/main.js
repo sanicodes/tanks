@@ -1,4 +1,4 @@
-// Client entry: connects, captures input (WASD move + mouse aim + fire), buffers
+// Client entry: connects, captures input (WASD move + mouse aim + shot), buffers
 // snapshots, drives the render loop. Sends INPUTS ONLY — never positions.
 // Screens: global lobby -> room lobby (team + class + host settings) -> battle.
 
@@ -243,6 +243,7 @@ let firing = false;
 let aim = 0;
 let selfState = null; // our tank entry from the latest snapshot
 let nextShotAt = 0; // client-predicted reload clock (performance.now ms)
+let shotSeq = 0; // monotonically increasing, one server shot request per press
 
 function canvasPoint(clientX, clientY) {
   const rect = canvas.getBoundingClientRect();
@@ -258,7 +259,7 @@ canvas.addEventListener('mousedown', (e) => {
   if (e.button === 0) {
     firing = true;
     sfx.resume();
-    pushInput();
+    requestShot();
   }
 });
 addEventListener('mouseup', (e) => {
@@ -282,7 +283,8 @@ addEventListener('keydown', (e) => {
   e.preventDefault();
   if (!keys[e.code]) {
     keys[e.code] = true;
-    pushInput();
+    if (e.code === 'Space') requestShot();
+    else pushInput();
   }
 });
 addEventListener('keyup', (e) => {
@@ -311,8 +313,9 @@ function pushInput() {
     r: down(MOVE.r),
     fire: firing || keys['Space'],
     aim,
+    shotSeq,
   };
-  const sig = `${+input.u}${+input.d}${+input.l}${+input.r}${+input.fire}${aim.toFixed(2)}`;
+  const sig = `${+input.u}${+input.d}${+input.l}${+input.r}${+input.fire}${shotSeq}:${aim.toFixed(2)}`;
   if (sig !== lastSent) {
     lastSent = sig;
     socket.emit('input', input);
@@ -323,12 +326,17 @@ function pushInput() {
 setInterval(pushInput, 45);
 
 // --- client-side predicted shooting ---------------------------------------
-// Your own shots fire instantly client-side (muzzle flash + tracer) so the gun
-// feels responsive; the server is still authoritative for damage and hides our
-// duplicate server-side rounds. Cadence matches our class reload (+ rapid buff).
-function maybeShoot() {
+// Each press sends one shot request. The local tracer appears immediately when
+// our predicted reload is ready; the server remains authoritative for damage.
+function requestShot() {
   if (!inRoom) return;
-  if (!(firing || keys['Space'])) return;
+  shotSeq++;
+  pushInput();
+  predictShot();
+}
+
+function predictShot() {
+  if (!inRoom) return;
   if (!selfState || selfState.dead) return;
   const cls = renderer.getSelfClass();
   const pos = renderer.getSelfPos();
@@ -343,7 +351,6 @@ function maybeShoot() {
 
 // ---------------------------------------------------------------- render loop
 function frame() {
-  maybeShoot();
   renderer.render();
   requestAnimationFrame(frame);
 }

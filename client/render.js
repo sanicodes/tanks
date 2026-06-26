@@ -2,7 +2,7 @@
 // the past (lerped between snapshots); bullets are dead-reckoned from their last
 // known velocity so fast rounds stay smooth. Decoupled from net rate via rAF.
 
-import { INTERP_DELAY_MS, TANK_CLASSES, PICKUP_RADIUS, VIEW_W, VIEW_H, FOG_RADIUS } from '/shared/constants.js';
+import { INTERP_DELAY_MS, TANK_CLASSES, PICKUP_RADIUS, VIEW_W, VIEW_H, FOG_RADIUS, FOG_RADIUS_BY_CLASS } from '/shared/constants.js';
 import { lerpAngle, clamp, circleHitsBox } from '/shared/physics.js';
 
 const TEAM = { red: '#e15a4a', blue: '#4a78e1' };
@@ -45,6 +45,10 @@ export class Renderer {
     this.selfPos = null; // latest interpolated self position (for aim)
     this.camera = { x: 0, y: 0 }; // world-space top-left of the viewport
     this.lastFocus = null; // last good camera focus (for dead/spectator)
+    this.fogCanvas = document.createElement('canvas');
+    this.fogCanvas.width = VIEW_W;
+    this.fogCanvas.height = VIEW_H;
+    this.fogCtx = this.fogCanvas.getContext('2d');
     this.fog = true;
     this.onShoot = null;
     this.onExplode = null;
@@ -69,6 +73,8 @@ export class Renderer {
     }
     this.canvas.width = VIEW_W;
     this.canvas.height = VIEW_H;
+    this.fogCanvas.width = VIEW_W;
+    this.fogCanvas.height = VIEW_H;
     this.effects = [];
     this.prevTanks.clear();
     this.lastFocus = { x: init.arena.width / 2, y: init.arena.height / 2 };
@@ -285,7 +291,7 @@ export class Renderer {
 
   // dark overlay punched with soft holes around our tank + living teammates
   _drawFog(positions) {
-    const { ctx } = this;
+    const { ctx, fogCtx } = this;
     const myStatic = this.staticById.get(this.selfId);
     if (!myStatic) return; // pure spectators see the whole field
     const cam = this.camera;
@@ -296,28 +302,34 @@ export class Renderer {
         const st = this.staticById.get(id);
         if (!st) continue;
         const friendly = id === this.selfId || (this.mode !== 'ffa' && st.team === myStatic.team);
-        if (friendly) reveal.push({ x: t.x - cam.x, y: t.y - cam.y });
+        if (friendly) {
+          const radius = FOG_RADIUS_BY_CLASS[st.cls] || FOG_RADIUS;
+          reveal.push({ x: t.x - cam.x, y: t.y - cam.y, radius });
+        }
       }
     }
     if (reveal.length === 0) {
       const f = this.lastFocus || { x: cam.x + VIEW_W / 2, y: cam.y + VIEW_H / 2 };
-      reveal.push({ x: f.x - cam.x, y: f.y - cam.y });
+      reveal.push({ x: f.x - cam.x, y: f.y - cam.y, radius: FOG_RADIUS });
     }
-    ctx.save();
-    ctx.fillStyle = 'rgba(10,12,11,0.93)';
-    ctx.fillRect(0, 0, VIEW_W, VIEW_H);
-    ctx.globalCompositeOperation = 'destination-out';
+    fogCtx.save();
+    fogCtx.clearRect(0, 0, VIEW_W, VIEW_H);
+    fogCtx.fillStyle = 'rgba(10,12,11,0.93)';
+    fogCtx.fillRect(0, 0, VIEW_W, VIEW_H);
+    fogCtx.globalCompositeOperation = 'destination-out';
     for (const r of reveal) {
-      const g = ctx.createRadialGradient(r.x, r.y, 0, r.x, r.y, FOG_RADIUS);
+      const radius = r.radius || FOG_RADIUS;
+      const g = fogCtx.createRadialGradient(r.x, r.y, 0, r.x, r.y, radius);
       g.addColorStop(0, 'rgba(0,0,0,1)');
       g.addColorStop(0.62, 'rgba(0,0,0,1)');
       g.addColorStop(1, 'rgba(0,0,0,0)');
-      ctx.fillStyle = g;
-      ctx.beginPath();
-      ctx.arc(r.x, r.y, FOG_RADIUS, 0, Math.PI * 2);
-      ctx.fill();
+      fogCtx.fillStyle = g;
+      fogCtx.beginPath();
+      fogCtx.arc(r.x, r.y, radius, 0, Math.PI * 2);
+      fogCtx.fill();
     }
-    ctx.restore();
+    fogCtx.restore();
+    ctx.drawImage(this.fogCanvas, 0, 0);
   }
 
   _drawPickups(now) {

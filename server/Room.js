@@ -1,7 +1,7 @@
 // One game room. Phases: lobby -> countdown -> play -> (roundend) -> ended.
 // In `lobby`, players pick team + tank class and the OWNER configures the match;
 // the 60 Hz loop runs only while a match is live. The server is the sole source
-// of truth — clients send inputs (movement + aim + fire), never positions.
+// of truth — clients send inputs (movement, aim, and shot requests), never positions.
 //
 // Modes:
 //   tdm  Team Deathmatch — red vs blue, respawns on, first team to frag limit.
@@ -143,11 +143,12 @@ export class Room {
       name: (name || 'Player').slice(0, 16),
       team: 'spec',
       cls: DEFAULT_CLASS,
-      input: { u: false, d: false, l: false, r: false, fire: false, aim: 0 },
+      input: { u: false, d: false, l: false, r: false, fire: false, aim: 0, shotSeq: 0 },
       tank: null,
       dead: false,
       respawnAt: 0,
       reloadUntil: 0,
+      seenShotSeq: 0,
       protectUntil: 0,
       lastHitAt: 0,
       buffs: {},
@@ -188,6 +189,10 @@ export class Room {
     p.input.r = !!input.r;
     p.input.fire = !!input.fire;
     if (typeof input.aim === 'number' && Number.isFinite(input.aim)) p.input.aim = input.aim;
+    if (typeof input.shotSeq === 'number' && Number.isFinite(input.shotSeq)) {
+      const seq = Math.max(0, Math.floor(input.shotSeq));
+      if (seq > p.input.shotSeq) p.input.shotSeq = seq;
+    }
   }
 
   setTeam(socketId, team) {
@@ -317,6 +322,7 @@ export class Room {
     player.dead = false;
     player.buffs = {};
     player.reloadUntil = this.tick;
+    player.seenShotSeq = player.input?.shotSeq || 0;
     player.protectUntil = this.tick + msToTicks(SPAWN_PROTECT_MS);
     player.lastHitAt = this.tick;
   }
@@ -358,6 +364,7 @@ export class Room {
   }
 
   _enterPlay() {
+    this._discardQueuedShots();
     this.state = 'play';
     if (this.mode === 'lts') {
       this.roundActive = true;
@@ -400,9 +407,15 @@ export class Room {
 
     // 1. movement + firing
     for (const p of this.players.values()) {
-      if (!this._isActive(p)) continue;
+      if (!this._isActive(p)) {
+        p.seenShotSeq = p.input.shotSeq;
+        continue;
+      }
       applyTankInput(p.tank, p.input);
-      if (p.input.fire && this.tick >= p.reloadUntil) this._fire(p);
+      if (p.input.shotSeq > p.seenShotSeq) {
+        p.seenShotSeq = p.input.shotSeq;
+        if (this.tick >= p.reloadUntil) this._fire(p);
+      }
     }
 
     // 2. resolve tank movement / collisions
@@ -431,6 +444,10 @@ export class Room {
     t.vy -= Math.sin(t.turret) * spec.recoil;
     const reload = spec.reloadMs * (this._hasBuff(player, 'rapid') ? RAPID_RELOAD_MULT : 1);
     player.reloadUntil = this.tick + msToTicks(reload);
+  }
+
+  _discardQueuedShots() {
+    for (const p of this.players.values()) p.seenShotSeq = p.input.shotSeq;
   }
 
   _stepBullets() {

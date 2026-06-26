@@ -10,7 +10,8 @@
 // }
 // Angles point a fresh tank's turret toward the action (radians). 0 = +x (right).
 
-import { ARENA_SCALE } from './constants.js';
+import { ARENA_SCALE, PICKUP_RADIUS } from './constants.js';
+import { circleHitsBox, clamp } from './physics.js';
 
 const PI = Math.PI;
 
@@ -40,7 +41,7 @@ function crossfire() {
       [110, 110, 0], [W - 110, 110, PI], [110, H - 110, 0], [W - 110, H - 110, PI],
       [cx, 110, PI / 2], [cx, H - 110, -PI / 2], [180, cy, 0], [W - 180, cy, PI],
     ],
-    pads: [[cx, 100], [cx, H - 100], [240, cy], [W - 240, cy]],
+    pads: [[cx, 100], [cx, H - 100], [290, cy - 95], [W - 290, cy + 95]],
   };
 }
 
@@ -72,7 +73,7 @@ function dustbowl() {
       [110, 110, 0], [W - 110, 110, PI], [110, H - 110, 0], [W - 110, H - 110, PI],
       [cx, 130, PI / 2], [cx, H - 130, -PI / 2], [160, cy, 0], [W - 160, cy, PI],
     ],
-    pads: [[cx, 120], [cx, H - 120], [cx - 240, cy], [cx + 240, cy]],
+    pads: [[cx, 220], [cx, H - 220], [cx - 260, cy], [cx + 260, cy]],
   };
 }
 
@@ -142,8 +143,55 @@ function maze() {
       [100, 100, 0], [W - 100, 100, PI], [100, H - 100, 0], [W - 100, H - 100, PI],
       [cx, 100, PI / 2], [cx, H - 100, -PI / 2], [cx, cy, 0], [120, cy, 0],
     ],
-    pads: [[cx, cy], [cx, 110], [cx, H - 110], [120, cy], [W - 120, cy]],
+    pads: [[cx, cy - 95], [cx, 110], [cx, H - 110], [120, cy], [W - 120, cy]],
   };
+}
+
+const PAD_CLEARANCE = PICKUP_RADIUS + 6;
+
+function clearPad([x, y], boxes, width, height) {
+  let px = x;
+  let py = y;
+  const maxPasses = Math.max(1, boxes.length * 2);
+
+  for (let pass = 0; pass < maxPasses; pass++) {
+    let moved = false;
+    for (const box of boxes) {
+      if (!circleHitsBox(px, py, PAD_CLEARANCE, box)) continue;
+
+      const nx = clamp(px, box.x, box.x + box.w);
+      const ny = clamp(py, box.y, box.y + box.h);
+      const dx = px - nx;
+      const dy = py - ny;
+      const d = Math.hypot(dx, dy);
+
+      if (d > 0) {
+        const push = PAD_CLEARANCE - d + 0.5;
+        if (push > 0) {
+          px += (dx / d) * push;
+          py += (dy / d) * push;
+          moved = true;
+        }
+      } else {
+        const exits = [
+          { d: Math.abs(px - box.x), x: box.x - PAD_CLEARANCE, y: py },
+          { d: Math.abs(box.x + box.w - px), x: box.x + box.w + PAD_CLEARANCE, y: py },
+          { d: Math.abs(py - box.y), x: px, y: box.y - PAD_CLEARANCE },
+          { d: Math.abs(box.y + box.h - py), x: px, y: box.y + box.h + PAD_CLEARANCE },
+        ];
+        exits.sort((a, b) => a.d - b.d);
+        px = exits[0].x;
+        py = exits[0].y;
+        moved = true;
+      }
+
+      px = clamp(px, PAD_CLEARANCE, width - PAD_CLEARANCE);
+      py = clamp(py, PAD_CLEARANCE, height - PAD_CLEARANCE);
+    }
+    if (!moved) break;
+  }
+
+  return [Math.round(px), Math.round(py)];
 }
 
 // Scale a base layout up to play size. Coordinates, sizes, spawns and pads all
@@ -151,15 +199,18 @@ function maze() {
 function scaleArena(a, k) {
   const s = (n) => Math.round(n * k);
   const pt = ([x, y, ang = 0]) => [s(x), s(y), ang];
+  const width = s(a.width);
+  const height = s(a.height);
+  const boxes = a.boxes.map((b) => ({ x: s(b.x), y: s(b.y), w: s(b.w), h: s(b.h) }));
   return {
     name: a.name,
-    width: s(a.width),
-    height: s(a.height),
-    boxes: a.boxes.map((b) => ({ x: s(b.x), y: s(b.y), w: s(b.w), h: s(b.h) })),
+    width,
+    height,
+    boxes,
     spawnRed: a.spawnRed.map(pt),
     spawnBlue: a.spawnBlue.map(pt),
     spawnFFA: a.spawnFFA.map(pt),
-    pads: a.pads.map(([x, y]) => [s(x), s(y)]),
+    pads: a.pads.map(([x, y]) => clearPad([s(x), s(y)], boxes, width, height)),
   };
 }
 

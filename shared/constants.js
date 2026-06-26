@@ -16,6 +16,12 @@ export const VIEW_H = 640;
 export const ARENA_SCALE = 1.5; // base arena layouts are scaled up by this
 export const FOG_DEFAULT = true;
 export const FOG_RADIUS = 310; // px revealed around a friendly tank
+export const FOG_RADIUS_BY_CLASS = {
+  scout: FOG_RADIUS,
+  fighter: FOG_RADIUS,
+  heavy: FOG_RADIUS,
+  sniper: 430,
+};
 
 // --- Tank movement ---
 // Twin-stick control: WASD drives the hull in world space, the mouse aims the
@@ -29,7 +35,7 @@ export const TURRET_TURN = 0.5; // fraction the turret rotates toward the aim ea
 // radius    collision circle (the hull is drawn around it)
 // accel     per-tick acceleration while driving
 // damp      per-tick velocity multiplier (drag) — with accel sets top speed
-// reloadMs  minimum gap between shots (auto-fires while the fire key is held)
+// reloadMs  minimum gap between single-shot fire requests
 // recoil    backward impulse on the hull when firing
 // bullet:
 //   speed   px/tick    damage  hp removed on a direct hit
@@ -60,7 +66,7 @@ export const TANK_CLASSES = {
     name: 'Sniper',
     blurb: 'Long fast rounds that punch through tanks.',
     hp: 80, radius: 14, accel: 0.44, damp: 0.87, reloadMs: 1500, recoil: 1.5,
-    bullet: { speed: 19, damage: 58, radius: 3, ttlMs: 1800, spread: 0, pierce: true },
+    bullet: { speed: 19, damage: 58, radius: 3, ttlMs: 2200, spread: 0, pierce: true },
   },
 };
 export const CLASS_KEYS = Object.keys(TANK_CLASSES);
