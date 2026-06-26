@@ -2,7 +2,10 @@
 // the past (lerped between snapshots); bullets are dead-reckoned from their last
 // known velocity so fast rounds stay smooth. Decoupled from net rate via rAF.
 
-import { INTERP_DELAY_MS, TANK_CLASSES, PICKUP_RADIUS, VIEW_W, VIEW_H, FOG_RADIUS, FOG_RADIUS_BY_CLASS } from '/shared/constants.js';
+import {
+  INTERP_DELAY_MS, TANK_CLASSES, PICKUP_RADIUS, VIEW_W, VIEW_H,
+  FOG_RADIUS, FOG_RADIUS_BY_CLASS, CAMERA_FOLLOW, CAMERA_ZOOM, CAMERA_ZOOM_BY_CLASS,
+} from '/shared/constants.js';
 import { lerpAngle, clamp, circleHitsBox } from '/shared/physics.js';
 
 const TEAM = { red: '#e15a4a', blue: '#4a78e1' };
@@ -43,8 +46,10 @@ export class Renderer {
     this._latestPositions = null; // tanks this frame (for local-bullet culling)
     this.prevTanks = new Map(); // id -> {dead,hp,x,y}
     this.selfPos = null; // latest interpolated self position (for aim)
-    this.camera = { x: 0, y: 0 }; // world-space top-left of the viewport
+    this.camera = { x: 0, y: 0, zoom: CAMERA_ZOOM }; // world-space top-left of the viewport
+    this.cameraReady = false;
     this.lastFocus = null; // last good camera focus (for dead/spectator)
+    this.visionZones = null;
     this.fogCanvas = document.createElement('canvas');
     this.fogCanvas.width = VIEW_W;
     this.fogCanvas.height = VIEW_H;
@@ -78,6 +83,8 @@ export class Renderer {
     this.effects = [];
     this.prevTanks.clear();
     this.lastFocus = { x: init.arena.width / 2, y: init.arena.height / 2 };
+    this.cameraReady = false;
+    this.visionZones = null;
   }
 
   setSelf(id) {
@@ -153,6 +160,11 @@ export class Renderer {
     return this.selfPos;
   }
 
+  screenToWorld(x, y) {
+    const z = this.camera.zoom || CAMERA_ZOOM;
+    return { x: this.camera.x + x / z, y: this.camera.y + y / z };
+  }
+
   // interpolated tank states for renderTime
   _interpTanks(renderTime) {
     const buf = this.buffer;
@@ -215,26 +227,45 @@ export class Renderer {
     this._latestPositions = positions;
     const aw = this.init.arena.width;
     const ah = this.init.arena.height;
-    const camX = aw <= VIEW_W ? (aw - VIEW_W) / 2 : clamp(focus.x - VIEW_W / 2, 0, aw - VIEW_W);
-    const camY = ah <= VIEW_H ? (ah - VIEW_H) / 2 : clamp(focus.y - VIEW_H / 2, 0, ah - VIEW_H);
-    this.camera = { x: camX, y: camY };
+    const targetZoom = this._targetZoom(positions);
+    const zoom = this.cameraReady
+      ? this.camera.zoom + (targetZoom - this.camera.zoom) * CAMERA_FOLLOW
+      : targetZoom;
+    const viewW = VIEW_W / zoom;
+    const viewH = VIEW_H / zoom;
+    const targetCamX = aw <= viewW ? (aw - viewW) / 2 : clamp(focus.x - viewW / 2, 0, aw - viewW);
+    const targetCamY = ah <= viewH ? (ah - viewH) / 2 : clamp(focus.y - viewH / 2, 0, ah - viewH);
+    let camX = targetCamX;
+    let camY = targetCamY;
+    if (this.cameraReady) {
+      const dx = targetCamX - this.camera.x;
+      const dy = targetCamY - this.camera.y;
+      if (Math.hypot(dx, dy) < viewW * 0.45) {
+        camX = this.camera.x + dx * CAMERA_FOLLOW;
+        camY = this.camera.y + dy * CAMERA_FOLLOW;
+      }
+    }
+    this.cameraReady = true;
+    this.camera = { x: camX, y: camY, zoom };
+    this.visionZones = this._visionZones(positions);
 
     // --- world (drawn in world space, shifted by the camera) ---
     ctx.save();
+    ctx.scale(zoom, zoom);
     ctx.translate(-camX, -camY);
-    this._drawField(camX, camY);
+    this._drawField(camX, camY, viewW, viewH);
     this._drawPickups(now);
     this._drawBullets(renderTime);
     this._drawLocalBullets(now);
     if (positions) {
-      for (const [id, t] of positions) if (!t.dead) this._drawTank(id, t, now);
-      for (const [id, t] of positions) if (!t.dead) this._drawNameHealth(id, t);
+      for (const [id, t] of positions) if (!t.dead && this._canSeeTank(id, t)) this._drawTank(id, t, now);
+      for (const [id, t] of positions) if (!t.dead && this._canSeeTank(id, t)) this._drawNameHealth(id, t);
     }
     this._drawEffects(now);
     ctx.restore();
 
     // --- fog of war (screen space, over the world) ---
-    if (this.fog) this._drawFog(positions);
+    if (this.fog) this._drawFog();
   }
 
   // pick a camera target when we have no live tank of our own
@@ -248,26 +279,37 @@ export class Renderer {
     return this.lastFocus || { x: this.init.arena.width / 2, y: this.init.arena.height / 2 };
   }
 
-  _drawField(camX, camY) {
+  _targetZoom(positions) {
+    if (positions) {
+      const self = positions.get(this.selfId);
+      if (self && !self.dead) {
+        const st = this.staticById.get(this.selfId);
+        return CAMERA_ZOOM_BY_CLASS[st?.cls] || CAMERA_ZOOM;
+      }
+    }
+    return CAMERA_ZOOM;
+  }
+
+  _drawField(camX, camY, viewW, viewH) {
     const { ctx, init } = this;
     const W = init.arena.width;
     const H = init.arena.height;
     // ground (only the visible slice)
     ctx.fillStyle = '#3b3f37';
-    ctx.fillRect(camX, camY, VIEW_W, VIEW_H);
+    ctx.fillRect(camX, camY, viewW, viewH);
     // grid (clipped to the viewport)
     ctx.strokeStyle = 'rgba(255,255,255,.045)';
     ctx.lineWidth = 1;
     ctx.beginPath();
     const x0 = Math.floor(camX / 64) * 64;
     const y0 = Math.floor(camY / 64) * 64;
-    for (let x = x0; x <= camX + VIEW_W; x += 64) {
+    for (let x = x0; x <= camX + viewW; x += 64) {
       ctx.moveTo(x, camY);
-      ctx.lineTo(x, camY + VIEW_H);
+      ctx.lineTo(x, camY + viewH);
     }
-    for (let y = y0; y <= camY + VIEW_H; y += 64) {
+    for (let y = y0; y <= camY + viewH; y += 64) {
       ctx.moveTo(camX, y);
-      ctx.lineTo(camX + VIEW_W, y);
+      ctx.lineTo(camX + viewW, y);
     }
     ctx.stroke();
     // perimeter
@@ -276,7 +318,7 @@ export class Renderer {
     ctx.strokeRect(3, 3, W - 6, H - 6);
     // obstacles (only those overlapping the viewport)
     for (const b of init.arena.boxes) {
-      if (b.x + b.w < camX || b.x > camX + VIEW_W || b.y + b.h < camY || b.y > camY + VIEW_H) continue;
+      if (b.x + b.w < camX || b.x > camX + viewW || b.y + b.h < camY || b.y > camY + viewH) continue;
       ctx.fillStyle = '#5a5650';
       ctx.fillRect(b.x, b.y, b.w, b.h);
       ctx.fillStyle = 'rgba(255,255,255,.08)';
@@ -289,12 +331,9 @@ export class Renderer {
     }
   }
 
-  // dark overlay punched with soft holes around our tank + living teammates
-  _drawFog(positions) {
-    const { ctx, fogCtx } = this;
+  _visionZones(positions) {
     const myStatic = this.staticById.get(this.selfId);
-    if (!myStatic) return; // pure spectators see the whole field
-    const cam = this.camera;
+    if (!this.fog || !myStatic) return null; // pure spectators see the whole field
     const reveal = [];
     if (positions) {
       for (const [id, t] of positions) {
@@ -304,28 +343,57 @@ export class Renderer {
         const friendly = id === this.selfId || (this.mode !== 'ffa' && st.team === myStatic.team);
         if (friendly) {
           const radius = FOG_RADIUS_BY_CLASS[st.cls] || FOG_RADIUS;
-          reveal.push({ x: t.x - cam.x, y: t.y - cam.y, radius });
+          reveal.push({ x: t.x, y: t.y, radius });
         }
       }
     }
     if (reveal.length === 0) {
-      const f = this.lastFocus || { x: cam.x + VIEW_W / 2, y: cam.y + VIEW_H / 2 };
-      reveal.push({ x: f.x - cam.x, y: f.y - cam.y, radius: FOG_RADIUS });
+      const f = this.lastFocus || { x: this.camera.x + VIEW_W / 2, y: this.camera.y + VIEW_H / 2 };
+      reveal.push({ x: f.x, y: f.y, radius: FOG_RADIUS });
     }
+    return reveal;
+  }
+
+  _isVisibleWorld(x, y, margin = 0) {
+    if (!this.fog || !this.staticById.get(this.selfId)) return true;
+    if (!this.visionZones) return true;
+    for (const z of this.visionZones) {
+      const r = z.radius + margin;
+      const dx = x - z.x;
+      const dy = y - z.y;
+      if (dx * dx + dy * dy <= r * r) return true;
+    }
+    return false;
+  }
+
+  _canSeeTank(id, t) {
+    const st = this.staticById.get(id);
+    if (!st) return false;
+    return this._isVisibleWorld(t.x, t.y, st.radius);
+  }
+
+  // dark overlay punched with soft holes around our tank + living teammates
+  _drawFog() {
+    const { ctx, fogCtx } = this;
+    if (!this.visionZones) return;
+    const cam = this.camera;
+    const zoom = cam.zoom || CAMERA_ZOOM;
     fogCtx.save();
     fogCtx.clearRect(0, 0, VIEW_W, VIEW_H);
-    fogCtx.fillStyle = 'rgba(10,12,11,0.93)';
+    fogCtx.fillStyle = 'rgba(7,9,8,0.985)';
     fogCtx.fillRect(0, 0, VIEW_W, VIEW_H);
     fogCtx.globalCompositeOperation = 'destination-out';
-    for (const r of reveal) {
-      const radius = r.radius || FOG_RADIUS;
-      const g = fogCtx.createRadialGradient(r.x, r.y, 0, r.x, r.y, radius);
+    for (const r of this.visionZones) {
+      const x = (r.x - cam.x) * zoom;
+      const y = (r.y - cam.y) * zoom;
+      const radius = (r.radius || FOG_RADIUS) * zoom;
+      const g = fogCtx.createRadialGradient(x, y, 0, x, y, radius);
       g.addColorStop(0, 'rgba(0,0,0,1)');
-      g.addColorStop(0.62, 'rgba(0,0,0,1)');
+      g.addColorStop(0.68, 'rgba(0,0,0,1)');
       g.addColorStop(1, 'rgba(0,0,0,0)');
       fogCtx.fillStyle = g;
       fogCtx.beginPath();
-      fogCtx.arc(r.x, r.y, radius, 0, Math.PI * 2);
+      fogCtx.arc(x, y, radius, 0, Math.PI * 2);
       fogCtx.fill();
     }
     fogCtx.restore();
@@ -335,6 +403,7 @@ export class Renderer {
   _drawPickups(now) {
     const { ctx } = this;
     for (const p of this.pickups) {
+      if (!this._isVisibleWorld(p.x, p.y, PICKUP_RADIUS)) continue;
       const info = PU[p.type] || { c: '#fff', glyph: '?' };
       const bob = Math.sin(now / 300 + p.x) * 2;
       ctx.save();
@@ -363,8 +432,11 @@ export class Renderer {
       if (b.owner === this.selfId) continue; // our own rounds are predicted locally
       const vx = b.vx / 100;
       const vy = b.vy / 100;
+      const x = b.x + vx * dtTicks;
+      const y = b.y + vy * dtTicks;
+      if (!this._isVisibleWorld(x, y, b.r + 18)) continue;
       const color = b.team === 'red' || b.team === 'blue' ? TEAM[b.team] : '#f0d264';
-      this._bulletSprite(b.x + vx * dtTicks, b.y + vy * dtTicks, vx, vy, b.r, color);
+      this._bulletSprite(x, y, vx, vy, b.r, color);
     }
   }
 
@@ -413,6 +485,10 @@ export class Renderer {
         }
       }
       if (hit) continue;
+      if (!this._isVisibleWorld(b.x, b.y, b.r + 18)) {
+        survivors.push(b);
+        continue;
+      }
       this._bulletSprite(b.x, b.y, b.vx, b.vy, b.r, color);
       survivors.push(b);
     }
@@ -601,6 +677,10 @@ export class Renderer {
       if (e.kind === 'muzzle') {
         if (age > 90) continue;
         const a = 1 - age / 90;
+        if (!this._isVisibleWorld(e.x, e.y, 20)) {
+          keep.push(e);
+          continue;
+        }
         ctx.save();
         ctx.globalAlpha = a;
         ctx.fillStyle = e.color;
@@ -615,6 +695,10 @@ export class Renderer {
         if (age > 200) continue;
         const a = 1 - age / 200;
         const rad = 3 + (1 - a) * 9;
+        if (!this._isVisibleWorld(e.x, e.y, rad + 8)) {
+          keep.push(e);
+          continue;
+        }
         ctx.save();
         ctx.globalAlpha = a * 0.8;
         ctx.strokeStyle = e.color;
@@ -627,6 +711,10 @@ export class Renderer {
       } else if (e.kind === 'spark') {
         if (age > 160) continue;
         const a = 1 - age / 160;
+        if (!this._isVisibleWorld(e.x, e.y, 18)) {
+          keep.push(e);
+          continue;
+        }
         ctx.save();
         ctx.globalAlpha = a;
         ctx.fillStyle = '#ffd98a';
@@ -639,6 +727,10 @@ export class Renderer {
         if (age > 360) continue;
         const a = 1 - age / 360;
         const rad = 10 + (1 - a) * 42;
+        if (!this._isVisibleWorld(e.x, e.y, rad)) {
+          keep.push(e);
+          continue;
+        }
         ctx.save();
         ctx.globalAlpha = a * 0.8;
         ctx.fillStyle = '#ffcf6b';
@@ -654,6 +746,10 @@ export class Renderer {
         const a = 1 - age / 500;
         const px = e.x + e.vx * (age / MS_PER_TICK);
         const py = e.y + e.vy * (age / MS_PER_TICK);
+        if (!this._isVisibleWorld(px, py, 12)) {
+          keep.push(e);
+          continue;
+        }
         ctx.save();
         ctx.globalAlpha = a;
         ctx.fillStyle = e.color;
@@ -679,6 +775,9 @@ export class Renderer {
     this.prevTanks.clear();
     this.selfPos = null;
     this._latestPositions = null;
+    this.camera = { x: 0, y: 0, zoom: CAMERA_ZOOM };
+    this.cameraReady = false;
+    this.visionZones = null;
   }
 }
 

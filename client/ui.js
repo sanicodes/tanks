@@ -137,7 +137,7 @@ export const ui = {
     $('startBtn').classList.toggle('hidden', !isOwner);
     $('startBtn').disabled = !ready;
     $('shuffleBtn').classList.toggle('hidden', !isOwner || mode === 'ffa');
-    $('shuffleBtn').disabled = room.players.filter((p) => p.team === 'red' || p.team === 'blue').length < 2;
+    $('shuffleBtn').disabled = room.players.length < 2;
     if (isOwner) {
       $('rlWait').textContent = ready
         ? ''

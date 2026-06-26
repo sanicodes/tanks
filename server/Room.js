@@ -213,7 +213,7 @@ export class Room {
 
   shuffleTeams(socketId) {
     if (!this.isOwner(socketId) || this.state !== 'lobby' || this.mode === 'ffa') return;
-    const pool = [...this.players.values()].filter((p) => p.team === 'red' || p.team === 'blue');
+    const pool = [...this.players.values()];
     for (let i = pool.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [pool[i], pool[j]] = [pool[j], pool[i]];

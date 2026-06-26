@@ -302,10 +302,10 @@ let lastSent = '';
 function pushInput() {
   if (!inRoom) return;
   const down = (list) => list.some((k) => keys[k]);
-  // aim toward the mouse in WORLD space (mouse is canvas-space; add the camera)
+  // aim toward the mouse in WORLD space; sniper view can be zoomed out.
   const self = renderer.getSelfPos();
-  const cam = renderer.camera;
-  if (self) aim = Math.atan2(mouseY + cam.y - self.y, mouseX + cam.x - self.x);
+  const worldMouse = renderer.screenToWorld(mouseX, mouseY);
+  if (self) aim = Math.atan2(worldMouse.y - self.y, worldMouse.x - self.x);
   const input = {
     u: down(MOVE.u),
     d: down(MOVE.d),
